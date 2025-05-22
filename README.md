@@ -73,14 +73,14 @@ Comprehensive administration interface with user management and analytics.
 ### Manual Setup
 ```bash
 # Clone the repository
-git clone https://github.com/abdullahtarar3/enhanced-file-server.git
-cd enhanced-file-server
+git clone https://github.com/abdullahtarar3/Server.git
+cd Server
 
 # Install dependencies
 pip install flask
 
 # Run the server
-python app.py
+server.bat
 ```
 
 ## 📦 Installation
