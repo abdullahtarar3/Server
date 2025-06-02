@@ -288,6 +288,7 @@ TEMPLATE = '''
       <a class="nav-link" href="{{ url_for('admin') }}"><i class="bi bi-gear"></i> Admin</a>
       {% endif %}
       <a class="nav-link" href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i> Logout</a>
+      <a class="nav-link" href="{{ url_for('notepad') }}"><i class="bi bi-journal-text"></i> Notepad</a>
     </div>
     {% endif %}
   </div>
@@ -475,6 +476,51 @@ TEMPLATE = '''
       </div>
     </div>
     
+  {% elif page == 'notepad' %}
+    <div class="row">
+      <div class="col-12">
+        <div class="card mb-4">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>Notepad</h5>
+            <div class="btn-group">
+              <button class="btn btn-primary" onclick="saveNotepad()">
+                <i class="bi bi-save me-2"></i>Save
+              </button>
+              <button class="btn btn-outline-secondary" onclick="newNotepad()">
+                <i class="bi bi-file-earmark-plus me-2"></i>New
+              </button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              <div class="col-md-3">
+                <div class="list-group mb-3">
+                  <div class="list-group-item list-group-item-action active">
+                    <i class="bi bi-journal-text me-2"></i>My Notes
+                  </div>
+                  {% for file in notepad_files %}
+                  <a href="#" class="list-group-item list-group-item-action" onclick="loadNotepad('{{ file.name }}')">
+                    <div class="d-flex justify-content-between align-items-center">
+                      <span><i class="bi bi-file-text me-2"></i>{{ file.name }}</span>
+                      <small class="text-muted">{{ file.modified }}</small>
+                    </div>
+                  </a>
+                  {% endfor %}
+                </div>
+              </div>
+              <div class="col-md-9">
+                <form id="notepadForm" method="POST">
+                  <div class="mb-3">
+                    <input type="text" class="form-control" id="notepadFilename" name="filename" placeholder="Enter filename (e.g., mynote.txt)" required>
+                  </div>
+                  <textarea class="form-control" id="notepadContent" name="content" rows="20" style="resize: none; font-family: monospace;"></textarea>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   {% else %}
     <!-- File Management Interface -->
     <div class="row">
@@ -1092,6 +1138,37 @@ document.getElementById('previewModal').addEventListener('click', function(e) {
     closePreview();
   }
 });
+
+// Notepad functions
+function saveNotepad() {
+    const filename = document.getElementById('notepadFilename').value;
+    if (!filename) {
+        alert('Please enter a filename');
+        return;
+    }
+    document.getElementById('notepadForm').submit();
+}
+
+function newNotepad() {
+    document.getElementById('notepadFilename').value = '';
+    document.getElementById('notepadContent').value = '';
+}
+
+function loadNotepad(filename) {
+    fetch('/notepad/' + encodeURIComponent(filename))
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('notepadFilename').value = filename;
+                document.getElementById('notepadContent').value = data.content;
+            } else {
+                alert('Error loading notepad: ' + data.message);
+            }
+        })
+        .catch(error => {
+            alert('Error loading notepad: ' + error);
+        });
+}
 </script>
 </body>
 </html>
@@ -1431,6 +1508,70 @@ def logout():
     logger.info(f"User {username} logged out")
     flash('You have been logged out', 'info')
     return redirect(url_for('login'))
+
+@app.route('/notepad', methods=['GET', 'POST'])
+@login_required
+def notepad():
+    """Handle notepad operations"""
+    if request.method == 'POST':
+        try:
+            content = request.form.get('content', '')
+            filename = request.form.get('filename', 'notepad.txt')
+            
+            # Ensure filename has .txt extension
+            if not filename.endswith('.txt'):
+                filename += '.txt'
+            
+            # Save the content
+            filepath = os.path.join(UPLOAD_FOLDER, filename)
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            # Update file stats
+            update_file_stats(filename, 'upload')
+            logger.info(f"Notepad saved: {filename} by {session['username']}")
+            flash('Notepad saved successfully', 'success')
+            
+            return redirect(url_for('notepad'))
+            
+        except Exception as e:
+            logger.error(f"Error saving notepad: {e}")
+            flash('Error saving notepad', 'error')
+    
+    # Get list of existing notepad files
+    notepad_files = []
+    for filename in os.listdir(UPLOAD_FOLDER):
+        if filename.endswith('.txt'):
+            path = os.path.join(UPLOAD_FOLDER, filename)
+            if os.path.isfile(path):
+                modified = datetime.datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M:%S')
+                notepad_files.append({
+                    'name': filename,
+                    'modified': modified
+                })
+    
+    return render_template_string(
+        TEMPLATE,
+        session=session,
+        page='notepad',
+        notepad_files=sorted(notepad_files, key=lambda x: x['modified'], reverse=True),
+        theme=config.get('theme', 'light')
+    )
+
+@app.route('/notepad/<path:filename>')
+@login_required
+def load_notepad(filename):
+    """Load notepad content"""
+    try:
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        if os.path.exists(filepath):
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return jsonify({'success': True, 'content': content})
+        return jsonify({'success': False, 'message': 'File not found'})
+    except Exception as e:
+        logger.error(f"Error loading notepad {filename}: {e}")
+        return jsonify({'success': False, 'message': str(e)})
 
 @app.errorhandler(404)
 def not_found(error):
